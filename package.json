@@ -1,0 +1,20 @@
+{
+  "name": "it-oversattning-proxy",
+  "version": "1.0.0",
+  "description": "Realtids-proxy som hämtar en svensk hemsida och serverar den italiensköversatt, med cachning per textsträng via DeepL.",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "node-fetch": "^2.7.0",
+    "cheerio": "^1.0.0",
+    "dotenv": "^16.4.5",
+    "lru-cache": "^10.2.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
