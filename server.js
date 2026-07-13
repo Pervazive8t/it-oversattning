@@ -7,7 +7,26 @@ const { LRUCache } = require('lru-cache');
 const app = express();
 
 const PORT = process.env.PORT || 3000;
-const SOURCE_URL = (process.env.SOURCE_URL || '').replace(/\/+$/, ''); // t.ex. https://mittbrollop.se
+
+const RAW_SOURCE_URL = (process.env.SOURCE_URL || '').trim();
+let SOURCE_URL = '';
+if (RAW_SOURCE_URL) {
+  try {
+    const parsed = new URL(RAW_SOURCE_URL);
+    SOURCE_URL = `${parsed.protocol}//${parsed.host}`; // bara domänen – ALDRIG sökvägen
+    if (parsed.pathname && parsed.pathname !== '/') {
+      console.warn(
+        `OBS: SOURCE_URL innehöll en sökväg ("${parsed.pathname}") som ignorerades. ` +
+        `Proxyn speglar hela domänen (${SOURCE_URL}) – besök själva undersidan på ` +
+        `din lokala adress istället, t.ex. http://localhost:${PORT}${parsed.pathname}`
+      );
+    }
+  } catch (e) {
+    console.error(`SOURCE_URL ("${RAW_SOURCE_URL}") är inte en giltig URL.`);
+    process.exit(1);
+  }
+}
+
 const DEEPL_API_KEY = process.env.DEEPL_API_KEY || '';
 const DEEPL_API_URL = process.env.DEEPL_API_KEY && process.env.DEEPL_API_KEY.endsWith(':fx')
   ? 'https://api-free.deepl.com/v2/translate'
@@ -233,6 +252,39 @@ function buildLiveSyncScript() {
 </script>`;
 }
 
+
+
+// Endpoint åt webbläsartillägget: den kan inte prata med DeepL direkt (DeepL
+// stödjer inte CORS/preflight från webbläsare), så den pratar med oss istället.
+// Vi pratar redan med DeepL problemfritt eftersom det sker server-till-server.
+app.use(express.json({ limit: '1mb' }));
+
+function setCorsHeaders(res) {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type');
+}
+
+app.options('/api/translate', (req, res) => {
+  setCorsHeaders(res);
+  res.sendStatus(204);
+});
+
+app.post('/api/translate', async (req, res) => {
+  setCorsHeaders(res);
+  try {
+    const { text } = req.body || {};
+    if (!text || typeof text !== 'string') {
+      return res.status(400).json({ ok: false, error: 'Fältet "text" saknas eller är ogiltigt.' });
+    }
+    const translations = await translateBatch([text]);
+    const translated = translations.get(text);
+    res.json({ ok: true, translated });
+  } catch (err) {
+    console.error('Fel i /api/translate:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
+  }
+});
 
 app.use(async (req, res) => {
   const targetUrl = SOURCE_URL + req.originalUrl;

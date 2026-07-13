@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<style>
+  body {
+    font-family: -apple-system, system-ui, sans-serif;
+    max-width: 480px;
+    margin: 40px auto;
+    padding: 0 20px;
+    color: #111827;
+  }
+  h1 { font-size: 18px; }
+  label {
+    display: block;
+    margin-top: 16px;
+    font-weight: 600;
+    font-size: 13px;
+  }
+  input {
+    width: 100%;
+    padding: 8px;
+    margin-top: 4px;
+    box-sizing: border-box;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 14px;
+  }
+  .hint {
+    font-size: 12px;
+    color: #6b7280;
+    margin-top: 4px;
+  }
+  button {
+    margin-top: 24px;
+    padding: 10px 20px;
+    background: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #saved {
+    margin-left: 12px;
+    color: #16a34a;
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+  <h1>Inställningar – Live-översättning</h1>
+
+  <label for="proxyUrl">Er server-URL (Render)</label>
+  <input type="text" id="proxyUrl" placeholder="https://jacobannabrollop.onrender.com">
+  <div class="hint">Samma adress som ni redan använder för översättningsproxyn. Tillägget skickar text hit, och servern pratar med DeepL åt er.</div>
+
+  <label for="debounceMs">Fördröjning innan text översätts (millisekunder)</label>
+  <input type="number" id="debounceMs" min="100" step="100">
+  <div class="hint">Hur länge texten ska vara stilla innan den skickas för översättning. Lägre = snabbare men risk att halvfärdiga ord översätts. 600 ms är ett bra startvärde.</div>
+
+  <div>
+    <button id="save">Spara</button>
+    <span id="saved" style="display:none;">Sparat ✓</span>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

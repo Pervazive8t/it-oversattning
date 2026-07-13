@@ -1,71 +1,80 @@
-# Italiensk översättningsproxy
+# Live-översättning SV → IT (Chrome-tillägg)
 
-En liten server som gör en italiensk "spegel" av din svenska hemsida. Den hämtar
-käll-sidan **live vid varje anrop** (ingen sid-cache), översätter texten till
-italienska via DeepL, och skickar sedan resultatet till besökaren. CSS, JS,
-bilder och typsnitt skickas igenom oförändrade så designen ser exakt likadan ut.
+Bevakar sidan kontinuerligt och visar en italiensk översättning av ny/ändrad
+text i en egen ruta längst ner på skärmen — fungerar oavsett HUR texten
+hamnar på sidan (statisk HTML, JavaScript, React, websockets, vad som helst).
 
-## Hur "realtid" fungerar
+## Varför en egen ruta istället för att skriva in i sidan?
 
-- Servern cachar **inte** hela sidor. Varje request hämtar färsk HTML från din
-  svenska sida. Ändrar du texten där, syns det på den italienska sidan direkt
-  nästa gång någon laddar den — ingen publiceringsfördröjning.
-- Det som cachas är **enskilda textsträngar** (t.ex. "Välkommen till vårt
-  bröllop" → dess italienska översättning), i sju dagar. Det gör att sidan
-  laddar snabbt och att du inte betalar för att DeepL översätter samma
-  mening om och om igen. Ny eller ändrad text upptäcks och översätts
-  automatiskt eftersom det är en ny sträng som inte finns i cachen.
+En tidigare version skrev den översatta texten direkt i sidans egna element.
+Det funkade i några sekunder men "hoppade tillbaka" till svenska — det berodde
+på att sidan är byggd med ett ramverk (troligen React) som har sin egen
+interna kopia av texten. När sidan uppdaterar sig själv (ny mening från
+mikrofonen) skriver ramverket tillbaka sin egen svenska version ovanpå vår
+översättning, eftersom det inte vet att vi ändrat något.
 
-## Snabbstart lokalt
+Lösningen: tillägget skriver aldrig i sidans egna element. Istället visas
+den italienska översättningen i en egen ruta som bara tillägget äger och
+styr — den kan inte skrivas över av sidans kod, eftersom sidans kod aldrig
+rör vår ruta.
 
-```bash
-npm install
-cp .env.example .env
-# öppna .env och fyll i:
-#   SOURCE_URL=https://din-svenska-sida.se
-#   DEEPL_API_KEY=din-nyckel
-npm start
-```
+Det här är backup-lösningen ifall `kolla-live-text`-verktyget visar att er
+mikrofon-text läggs till med JavaScript (då fungerar inte
+`it-oversattning-proxy`-servern).
 
-Servern startar på `http://localhost:3000` och speglar/översätter
-`SOURCE_URL`.
+## Installation (utvecklarläge, ingen publicering krävs)
 
-## Skaffa en DeepL API-nyckel
+1. Öppna Chrome, gå till `chrome://extensions`
+2. Slå på **Utvecklarläge** (växeln uppe till höger)
+3. Klicka **Läs in okomprimerat** (Load unpacked)
+4. Välj den här mappen (`live-translate-extension`)
+5. Tilläggets ikon dyker upp i verktygsfältet
 
-1. Gå till https://www.deepl.com/pro-api
-2. Skapa ett konto (Free-planen räcker gott för en bröllopssida — 500 000
-   tecken/månad gratis)
-3. Nyckeln du får hamnar under Account → API Keys. Gratis-nycklar slutar
-   alltid på `:fx` — koden känner av det automatiskt och använder rätt
-   DeepL-endpoint.
+## Konfigurera
 
-## Driftsättning (så den blir en riktig, publik hemsida)
+1. Se till att er `it-oversattning-proxy`-server är uppe och körs (t.ex. på
+   Render) — tillägget pratar med den, inte med DeepL direkt. Det beror på
+   att DeepL:s API inte stödjer anrop direkt från en webbläsare (ingen
+   CORS-preflight-hantering), oavsett vilka behörigheter tillägget har.
+2. Högerklicka tilläggets ikon → **Alternativ**
+3. Klistra in er server-URL, t.ex. `https://jacobannabrollop.onrender.com`
+4. Klicka **Spara**
 
-Enklast är **Render.com** (gratis-tier funkar fint för en bröllopssida):
+DeepL-nyckeln behöver du alltså bara ha på ett ställe — i serverns `.env` —
+inte i tillägget.
 
-1. Lägg upp den här mappen i ett GitHub-repo
-2. Gå till render.com → "New Web Service" → koppla repot
-3. Build command: `npm install`
-4. Start command: `npm start`
-5. Under Environment, lägg in `SOURCE_URL` och `DEEPL_API_KEY`
-6. Deploya — du får en URL typ `https://ditt-brollop-it.onrender.com`
+## Använd
 
-Vill du ha en egen italiensk domän (t.ex. `it.dittbrollop.se` eller
-`ilnostromatrimonio.it`) pekar du bara domänens DNS mot Render-tjänsten,
-samma sätt som med vilken annan hemsida som helst.
+1. Gå till sidan som ska översättas (t.ex.
+   `https://backend.illumitype.se/listener/annajacob`)
+2. Klicka tilläggets ikon → **Aktivera**
+3. Klart — all text på sidan översätts nu direkt, och ny text som dyker upp
+   (t.ex. från mikrofonen) översätts inom bråkdelen av en sekund efter att
+   den slutat ändras
 
-Railway, Fly.io eller en egen liten VPS fungerar precis lika bra — det enda
-kravet är Node.js 18+ och att miljövariablerna sätts.
+## Hur det undviker att översätta halvfärdiga meningar
 
-## Begränsningar värda att känna till
+Om taligenkänning bygger upp en mening ord för ord ("Hej" → "Hej och" → "Hej
+och välkomna...") väntar tillägget tills texten varit oförändrad i en liten
+stund (`debounceMs`, standard 600 millisekunder) innan den skickas för
+översättning. Annars skulle varje mellansteg översättas i onödan.
 
-- **Fungerar bäst för statisk HTML** (vilket din sida är) — sidor byggda med
-  React/Lovable där innehållet ritas upp av JavaScript i webbläsaren kräver
-  en annan lösning (headless-browser-rendering), eftersom servern då bara
-  skulle se en tom HTML-skalett.
-- Formulär som postar data (t.ex. RSVP) går igenom proxyn men skickas vidare
-  till samma URL — testa det flödet specifikt så inget italienska besökare
-  fyller i tappas bort.
-- DeepL har viss gratis-kvot (500 000 tecken/månad på Free). För en
-  bröllopssida med begränsat antal sidor och besökare räcker det med
-  marginal.
+Vill du ha snabbare respons (på bekostnad av risk att fånga halvfärdiga
+ord): sänk `debounceMs` i inställningarna, t.ex. till `300`.
+
+## Testat
+
+Kärnlogiken (upptäcka ny text, debounce, undvika att tilläggets egna
+skrivningar triggar en oändlig översättningsloop) är testad i en simulerad
+DOM-miljö med tre scenarier — initial text, egen skrivning, och simulerad
+live-textuppdatering — samtliga gav rätt resultat.
+
+## Begränsningar
+
+- Fungerar bara i den webbläsare/dator där tillägget är installerat (till
+  skillnad från proxy-servern, som ger en offentlig länk). Perfekt för ert
+  projektor-scenario med en dator, men skickar ingen länk till gäster.
+- Text i `<canvas>` eller video fångas inte (samma begränsning som proxyn).
+- Om sidan har extremt mycket text kan initial genomgång ta någon sekund
+  extra vid sidladdning — därefter är det bara nya/ändrade delar som
+  bearbetas.
