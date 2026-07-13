@@ -28,9 +28,11 @@ if (RAW_SOURCE_URL) {
 }
 
 const DEEPL_API_KEY = process.env.DEEPL_API_KEY || '';
-const DEEPL_API_URL = process.env.DEEPL_API_KEY && process.env.DEEPL_API_KEY.endsWith(':fx')
-  ? 'https://api-free.deepl.com/v2/translate'
-  : 'https://api.deepl.com/v2/translate';
+const DEEPL_FREE_URL = 'https://api-free.deepl.com/v2/translate';
+const DEEPL_PRO_URL = 'https://api.deepl.com/v2/translate';
+// Bästa gissning utifrån ":fx"-suffixet – men vi litar inte blint på den,
+// se automatisk fallback i callDeepl() nedan.
+let DEEPL_API_URL = DEEPL_API_KEY.trim().endsWith(':fx') ? DEEPL_FREE_URL : DEEPL_PRO_URL;
 const SOURCE_LANG = process.env.SOURCE_LANG || 'SV';
 const TARGET_LANG = process.env.TARGET_LANG || 'IT';
 const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS || '1000', 10);
@@ -55,6 +57,42 @@ const translationCache = new LRUCache({
 const SKIP_TAGS = new Set(['script', 'style', 'noscript', 'template', 'code', 'pre']);
 // Attribut som innehåller synlig/läsbar text värd att översätta
 const TRANSLATABLE_ATTRS = ['alt', 'title', 'placeholder', 'aria-label'];
+
+// Anropar DeepL. Om vi gissat fel server (Free vs Pro) baserat på
+// ":fx"-suffixet provar vi automatiskt den andra – och kommer ihåg rätt val
+// till nästa gång, så vi bara behöver gissa fel en enda gång.
+async function callDeepl(params) {
+  async function attempt(url) {
+    return fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `DeepL-Auth-Key ${DEEPL_API_KEY}`,
+      },
+      body: params,
+    });
+  }
+
+  let resp = await attempt(DEEPL_API_URL);
+
+  if (resp.status === 403) {
+    const bodyText = await resp.text().catch(() => '');
+    if (bodyText.includes('Wrong endpoint')) {
+      const otherUrl = DEEPL_API_URL === DEEPL_FREE_URL ? DEEPL_PRO_URL : DEEPL_FREE_URL;
+      console.warn(`Fel DeepL-server gissad (${DEEPL_API_URL}), provar ${otherUrl} istället...`);
+      const retryResp = await attempt(otherUrl);
+      if (retryResp.ok) {
+        DEEPL_API_URL = otherUrl; // kom ihåg rätt val till nästa anrop
+        console.warn(`Rätt DeepL-server var ${otherUrl} – använder den från och med nu.`);
+      }
+      return retryResp;
+    }
+    // 403 av annan anledning (t.ex. fel nyckel) – returnera ursprungssvaret som det är
+    return { ok: false, status: 403, text: async () => bodyText, json: async () => JSON.parse(bodyText) };
+  }
+
+  return resp;
+}
 
 async function translateBatch(texts) {
   const toTranslate = [];
@@ -83,14 +121,7 @@ async function translateBatch(texts) {
     params.append('preserve_formatting', '1');
     chunk.forEach(t => params.append('text', t));
 
-    const resp = await fetch(DEEPL_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `DeepL-Auth-Key ${DEEPL_API_KEY}`,
-      },
-      body: params,
-    });
+    const resp = await callDeepl(params);
 
     if (!resp.ok) {
       const errText = await resp.text().catch(() => '');
@@ -253,6 +284,49 @@ function buildLiveSyncScript() {
 }
 
 
+
+app.get('/usage', async (req, res) => {
+  try {
+    async function fetchUsage(baseUrl) {
+      const usageUrl = baseUrl.replace('/v2/translate', '/v2/usage');
+      return fetch(usageUrl, {
+        headers: { 'Authorization': `DeepL-Auth-Key ${DEEPL_API_KEY}` },
+      });
+    }
+
+    let resp = await fetchUsage(DEEPL_API_URL);
+    if (resp.status === 403) {
+      const bodyText = await resp.text().catch(() => '');
+      if (bodyText.includes('Wrong endpoint')) {
+        const otherUrl = DEEPL_API_URL === DEEPL_FREE_URL ? DEEPL_PRO_URL : DEEPL_FREE_URL;
+        resp = await fetchUsage(otherUrl);
+        if (resp.ok) DEEPL_API_URL = otherUrl;
+      }
+    }
+
+    const data = await resp.json();
+    if (!resp.ok) {
+      return res.status(resp.status).send(`<pre>DeepL-fel: ${JSON.stringify(data, null, 2)}</pre>`);
+    }
+    const used = data.character_count;
+    const limit = data.character_limit;
+    const percent = ((used / limit) * 100).toFixed(1);
+    res.send(`
+      <html><head><meta charset="utf-8"><title>DeepL-användning</title>
+      <style>body{font-family:system-ui,sans-serif;max-width:480px;margin:60px auto;padding:0 20px}
+      .bar{background:#eee;border-radius:8px;height:24px;overflow:hidden;margin:16px 0}
+      .fill{background:${percent > 90 ? '#dc2626' : percent > 70 ? '#d97706' : '#16a34a'};height:100%}
+      </style></head><body>
+      <h2>DeepL-förbrukning</h2>
+      <div class="bar"><div class="fill" style="width:${Math.min(percent, 100)}%"></div></div>
+      <p><strong>${used.toLocaleString('sv-SE')}</strong> / ${limit.toLocaleString('sv-SE')} tecken använda (${percent}%)</p>
+      <p style="color:#666;font-size:14px">Ladda om sidan för att se senaste siffran. Nyckel: ${DEEPL_API_KEY.slice(0, 8)}...</p>
+      </body></html>
+    `);
+  } catch (err) {
+    res.status(500).send(`<pre>Fel: ${err.message}</pre>`);
+  }
+});
 
 // Endpoint åt webbläsartillägget: den kan inte prata med DeepL direkt (DeepL
 // stödjer inte CORS/preflight från webbläsare), så den pratar med oss istället.
